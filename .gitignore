@@ -1,4 +1,5 @@
 .venv/
+.venv38/
 .venv_publish/
 *.egg-info/
 .reports/
