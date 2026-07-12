@@ -1,0 +1,7 @@
+-e .
+flake8>=5,<6
+pytest>=8,<9
+pytest-cov
+pytest-flake8
+pytest-asyncio
+pytest-sugar
