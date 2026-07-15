@@ -90,7 +90,7 @@ Each file is a YAML list of row mappings. Row and field order match the query re
 ```
 usage: pg_data_yaml export [--help] [-d DBNAME] [-h HOST] [-p PORT] [-U USER] [-W PASSWORD]
                              (--comment-label LABEL | --table-list-predicate PREDICATE)
-                             --out-dir OUT_DIR [--clean]
+                             --out-dir OUT_DIR [--clean] [--rows-limit ROWS]
 
 options:
   --help                show this help message and exit
@@ -107,6 +107,7 @@ options:
                         include tables matching SQL PREDICATE (comments ignored)
   --out-dir OUT_DIR     directory for exporting files
   --clean               clean out_dir if not empty (env variable DATA_DIRECTORY_AUTOCLEAN=true)
+  --rows-limit ROWS     skip tables with more than ROWS rows (default: 50000)
 ```
 
 ### diff

@@ -5,7 +5,7 @@ import shutil
 import sys
 
 from .analyze_envs import AnalyzeEnvs
-from .extractor import Extractor
+from .extractor import DEFAULT_ROWS_LIMIT, Extractor
 from .merge_envs import MergeEnvs
 from .pg import Pg
 from .synchronizer import Synchronizer
@@ -84,6 +84,13 @@ def main():
         action='store_true',
         help='clean out_dir if not empty '
         '(env variable DATA_DIRECTORY_AUTOCLEAN=true)',
+    )
+    parser_export.add_argument(
+        '--rows-limit',
+        type=int,
+        default=DEFAULT_ROWS_LIMIT,
+        metavar='ROWS',
+        help='skip tables with more than ROWS rows (default: %(default)s)',
     )
 
     parser_diff = subparsers.add_parser(

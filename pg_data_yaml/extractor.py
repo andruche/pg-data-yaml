@@ -9,20 +9,22 @@ from .registry import SyncTable, TableRegistry
 from .values import ordered_row
 
 
-class Extractor:
-    ROWS_LIMIT = 50000
+DEFAULT_ROWS_LIMIT = 50000
 
+
+class Extractor:
     def __init__(self, args: argparse.Namespace, pg: Pg):
         self.args = args
         self.pg = pg
         self.registry = TableRegistry.from_args(pg, args)
         self.formatter = Formatter()
+        self.rows_limit = getattr(args, 'rows_limit', DEFAULT_ROWS_LIMIT)
 
     async def export(self) -> None:
         tables = await self.registry.load()
         for sync_table in tables.values():
             rows_count = await self.get_rows_count(sync_table)
-            if rows_count == self.ROWS_LIMIT:
+            if rows_count == self.rows_limit:
                 print(f'Table {sync_table.table} has {rows_count} rows, skipping')
                 continue
             rows = await self.fetch_rows(sync_table)
@@ -36,7 +38,7 @@ class Extractor:
 
     async def get_rows_count(self, sync_table: SyncTable) -> list[dict]:
         query = sync_table.select_query()
-        query = f'select count(*) from ({query} limit {self.ROWS_LIMIT}) as t'
+        query = f'select count(*) from ({query} limit {self.rows_limit}) as t'
         rows = await self.pg.fetch(query)
         return rows[0]['count']
 
