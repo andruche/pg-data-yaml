@@ -26,6 +26,8 @@ class Synchronizer:
         await self.registry.load()
         src_tables = await self.load_tables()
         dst_tables = await self.extractor.get_tables_data()
+        if self.is_dir:
+            self._warn_tables_without_files(src_tables, dst_tables)
         diff = self.get_diff(src_tables, dst_tables)
         if not diff:
             print('Nothing to do: all tables are up to date')
@@ -43,6 +45,15 @@ class Synchronizer:
                 file_table = SyncTable.from_file_path(file_name)
             except ValueError as exc:
                 print(f'WARNING: {exc}, skipped', file=sys.stderr)
+                continue
+
+            sync_table = await self.registry.get(file_table.schema, file_table.table)
+            if sync_table is None:
+                print(
+                    f'WARNING: table {file_table.schema}.{file_table.table} '
+                    f'is not in the selected table set, skipped file {file_name}',
+                    file=sys.stderr,
+                )
                 continue
 
             data = self.formatter.load(file_name)
@@ -66,27 +77,26 @@ class Synchronizer:
                     )
                     sys.exit(1)
                 row = ordered_row(row)
-                if sync_table:
-                    missing_pk = [
-                        column
-                        for column in sync_table.pk_columns
-                        if column not in row
-                    ]
-                    if missing_pk:
-                        print(
-                            f'ERROR: row #{index} in {file_name} '
-                            f'missing primary key columns: {", ".join(missing_pk)}',
-                            file=sys.stderr,
-                        )
-                        sys.exit(1)
-                    key = pk_key(row, sync_table.pk_columns)
-                    if key in seen_pk:
-                        print(
-                            f'ERROR: duplicate primary key {key!r} in {file_name}',
-                            file=sys.stderr,
-                        )
-                        sys.exit(1)
-                    seen_pk.add(key)
+                missing_pk = [
+                    column
+                    for column in sync_table.pk_columns
+                    if column not in row
+                ]
+                if missing_pk:
+                    print(
+                        f'ERROR: row #{index} in {file_name} '
+                        f'missing primary key columns: {", ".join(missing_pk)}',
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                key = pk_key(row, sync_table.pk_columns)
+                if key in seen_pk:
+                    print(
+                        f'ERROR: duplicate primary key {key!r} in {file_name}',
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                seen_pk.add(key)
                 rows.append(row)
 
             key = (file_table.schema, file_table.table)
@@ -104,9 +114,16 @@ class Synchronizer:
             return sorted(glob.glob(os.path.join(self.args.source, '*', '*.yaml')))
         return [self.args.source]
 
+    def _warn_tables_without_files(self, src_tables, dst_tables):
+        for schema, table in sorted(set(dst_tables.keys()) - set(src_tables.keys())):
+            print(
+                f'WARNING: table {schema}.{table} has no yaml file in source directory, skipped',
+                file=sys.stderr,
+            )
+
     def get_diff(self, src_tables, dst_tables):
         if self.is_dir:
-            table_keys = set(src_tables.keys()).union(dst_tables.keys())
+            table_keys = set(src_tables.keys()) & set(dst_tables.keys())
         else:
             table_keys = set(src_tables.keys())
 

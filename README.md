@@ -217,4 +217,4 @@ $ pg_data_yaml sync -d my_database -h 127.0.0.1 -p 5432 -U postgres \
 $ pg_data_yaml diff -d my_database -h 127.0.0.1 -p 5432 -U postgres --source /tmp/refs/public/countries.yaml
 ```
 
-When syncing a directory, a missing yaml file for an included table is treated as an empty table (rows are deleted). When syncing a single file, only that table is compared and updated.
+When syncing a directory, only tables that are both in the selected set and have a yaml file in `--source` are compared. A warning is printed and the table is skipped when the file exists but the table is not in the selection, or when the table is in the selection but the yaml file is missing. When syncing a single file, only that table is compared and updated if it is in the selection.
