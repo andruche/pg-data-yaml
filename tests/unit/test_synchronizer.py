@@ -136,18 +136,242 @@ def test_wrap_sync_query_without_role_wraps_in_transaction():
 
 
 @pytest.mark.asyncio
+async def test_collect_sync_changes_ignores_row_order_only_difference():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.registry.get.return_value = _sync_table('public', 'countries')
+
+    src_tables = {
+        ('public', 'countries'): [
+            {'id': 2, 'name': 'beta'},
+            {'id': 1, 'name': 'alpha'},
+        ],
+    }
+    dst_tables = {
+        ('public', 'countries'): [
+            {'id': 1, 'name': 'alpha'},
+            {'id': 2, 'name': 'beta'},
+        ],
+    }
+
+    changes = await synchronizer.collect_sync_changes(src_tables, dst_tables)
+
+    assert changes == []
+
+
+def test_get_diff_shows_row_order_difference():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+
+    src_tables = {
+        ('public', 'countries'): [
+            {'id': 2, 'name': 'beta'},
+            {'id': 1, 'name': 'alpha'},
+        ],
+    }
+    dst_tables = {
+        ('public', 'countries'): [
+            {'id': 1, 'name': 'alpha'},
+            {'id': 2, 'name': 'beta'},
+        ],
+    }
+
+    diff = synchronizer.get_diff(src_tables, dst_tables)
+
+    assert diff == [
+        (
+            ('public', 'countries'),
+            [{'id': 2, 'name': 'beta'}, {'id': 1, 'name': 'alpha'}],
+            [{'id': 1, 'name': 'alpha'}, {'id': 2, 'name': 'beta'}],
+        ),
+    ]
+
+
+def test_find_row_attribute_mismatches_for_matching_primary_keys():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    sync_table = _sync_table('public', 'countries')
+
+    mismatches = synchronizer._find_row_attribute_mismatches(
+        sync_table,
+        [{'id': 1, 'name': 'alpha', 'code': 'ru'}],
+        [{'id': 1, 'name': 'alpha'}],
+    )
+
+    assert mismatches == [
+        "file row #1 and database row #1 (primary key (1,)): "
+        "file columns ['code', 'id', 'name'], database columns ['id', 'name']",
+    ]
+
+
+def test_find_row_attribute_mismatches_for_insert_row_with_extra_columns():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    sync_table = _sync_table('public', 'countries')
+
+    mismatches = synchronizer._find_row_attribute_mismatches(
+        sync_table,
+        [
+            {'id': 1, 'name': 'alpha'},
+            {'id': 2, 'name': 'beta', 'code': 'de'},
+        ],
+        [{'id': 1, 'name': 'alpha'}],
+    )
+
+    assert mismatches == [
+        "file row #2 (primary key (2,)): "
+        "file columns ['code', 'id', 'name'], database columns ['id', 'name']",
+    ]
+
+
+def test_filter_changed_rows_omits_identical_rows():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    sync_table = _sync_table('public', 'countries')
+
+    filtered_src, filtered_dst = synchronizer._filter_changed_rows(
+        sync_table,
+        [
+            {'id': 1, 'name': 'alpha'},
+            {'id': 2, 'name': 'beta'},
+        ],
+        [
+            {'id': 1, 'name': 'alpha'},
+            {'id': 2, 'name': 'changed'},
+        ],
+    )
+
+    assert filtered_src == [{'id': 2, 'name': 'beta'}]
+    assert filtered_dst == [{'id': 2, 'name': 'changed'}]
+
+
+def test_filter_changed_rows_includes_insert_and_delete():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    sync_table = _sync_table('public', 'countries')
+
+    filtered_src, filtered_dst = synchronizer._filter_changed_rows(
+        sync_table,
+        [{'id': 1, 'name': 'alpha'}, {'id': 3, 'name': 'new'}],
+        [{'id': 1, 'name': 'alpha'}, {'id': 2, 'name': 'old'}],
+    )
+
+    assert filtered_src == [{'id': 3, 'name': 'new'}]
+    assert filtered_dst == [{'id': 2, 'name': 'old'}]
+
+
+@pytest.mark.asyncio
+async def test_sync_exits_on_row_attribute_mismatch(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.yes = True
+    synchronizer.registry.load = AsyncMock()
+    synchronizer.load_tables = AsyncMock(return_value={
+        ('public', 'countries'): [{'id': 1, 'name': 'alpha', 'code': 'ru'}],
+    })
+    synchronizer.extractor.get_tables_data = AsyncMock(return_value={
+        ('public', 'countries'): [{'id': 1, 'name': 'alpha'}],
+    })
+    synchronizer.registry.get = AsyncMock(return_value=_sync_table('public', 'countries'))
+    synchronizer.apply_changes = AsyncMock()
+
+    with pytest.raises(SystemExit) as exc_info:
+        await synchronizer.sync(show_diff_only=False)
+
+    assert exc_info.value.code == 1
+    stderr = capsys.readouterr().err
+    assert 'table public.countries row attribute mismatch' in stderr
+    assert 'file row #1 and database row #1' in stderr
+
+
+@pytest.mark.asyncio
+async def test_sync_prints_diff_for_tables_with_commands():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.yes = True
+    synchronizer.registry.load = AsyncMock()
+    synchronizer.load_tables = AsyncMock(return_value={
+        ('public', 'countries'): [{'id': 1, 'name': 'new'}],
+    })
+    synchronizer.extractor.get_tables_data = AsyncMock(return_value={
+        ('public', 'countries'): [{'id': 1, 'name': 'old'}],
+    })
+    synchronizer.registry.get = AsyncMock(return_value=_sync_table('public', 'countries'))
+    synchronizer.print_diff = MagicMock()
+    synchronizer.apply_changes = AsyncMock()
+
+    await synchronizer.sync(show_diff_only=False)
+
+    synchronizer.print_diff.assert_called_once_with([
+        (
+            ('public', 'countries'),
+            [{'id': 1, 'name': 'new'}],
+            [{'id': 1, 'name': 'old'}],
+        ),
+    ])
+    synchronizer.apply_changes.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_sync_prints_only_changed_rows_in_diff():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.yes = True
+    synchronizer.registry.load = AsyncMock()
+    synchronizer.load_tables = AsyncMock(return_value={
+        ('public', 'countries'): [
+            {'id': 1, 'name': 'same'},
+            {'id': 2, 'name': 'new'},
+        ],
+    })
+    synchronizer.extractor.get_tables_data = AsyncMock(return_value={
+        ('public', 'countries'): [
+            {'id': 1, 'name': 'same'},
+            {'id': 2, 'name': 'old'},
+        ],
+    })
+    synchronizer.registry.get = AsyncMock(return_value=_sync_table('public', 'countries'))
+    synchronizer.print_diff = MagicMock()
+    synchronizer.apply_changes = AsyncMock()
+
+    await synchronizer.sync(show_diff_only=False)
+
+    synchronizer.print_diff.assert_called_once_with([
+        (
+            ('public', 'countries'),
+            [{'id': 2, 'name': 'new'}],
+            [{'id': 2, 'name': 'old'}],
+        ),
+    ])
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_diff_when_only_row_order_differs():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.yes = True
+    synchronizer.registry.load = AsyncMock()
+    synchronizer.load_tables = AsyncMock(return_value={
+        ('public', 'countries'): [
+            {'id': 2, 'name': 'beta'},
+            {'id': 1, 'name': 'alpha'},
+        ],
+    })
+    synchronizer.extractor.get_tables_data = AsyncMock(return_value={
+        ('public', 'countries'): [
+            {'id': 1, 'name': 'alpha'},
+            {'id': 2, 'name': 'beta'},
+        ],
+    })
+    synchronizer.registry.get = AsyncMock(return_value=_sync_table('public', 'countries'))
+    synchronizer.print_diff = MagicMock()
+    synchronizer.apply_changes = AsyncMock()
+
+    await synchronizer.sync(show_diff_only=False)
+
+    synchronizer.print_diff.assert_not_called()
+    synchronizer.apply_changes.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_apply_changes_executes_wrapped_query_in_transaction():
     synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
     synchronizer.args.dry_run = False
     synchronizer.args.echo_queries = False
-    synchronizer.registry.get.return_value = _sync_table('public', 'countries')
     synchronizer.pg.execute = AsyncMock()
-    synchronizer.get_apply_queries = MagicMock(
-        return_value=['delete from "public"."countries" where "id" = 1;'],
-    )
 
     await synchronizer.apply_changes([
-        (('public', 'countries'), [], [{'id': 1}]),
+        (('public', 'countries'), ['delete from "public"."countries" where "id" = 1;']),
     ])
 
     synchronizer.pg.execute.assert_awaited_once_with(
@@ -163,14 +387,10 @@ async def test_apply_changes_executes_wrapped_query_with_session_replication_rol
     synchronizer.args.session_replication_role = 'replica'
     synchronizer.args.dry_run = False
     synchronizer.args.echo_queries = False
-    synchronizer.registry.get.return_value = _sync_table('public', 'countries')
     synchronizer.pg.execute = AsyncMock()
-    synchronizer.get_apply_queries = MagicMock(
-        return_value=['delete from "public"."countries" where "id" = 1;'],
-    )
 
     await synchronizer.apply_changes([
-        (('public', 'countries'), [], [{'id': 1}]),
+        (('public', 'countries'), ['delete from "public"."countries" where "id" = 1;']),
     ])
 
     synchronizer.pg.execute.assert_awaited_once_with(
