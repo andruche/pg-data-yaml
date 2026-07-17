@@ -171,9 +171,18 @@ class Synchronizer:
                 self.get_apply_queries(sync_table, src_rows or [], dst_rows or [])
             )
             query = '\n'.join(query for query in queries if query)
-            self.print_query(query)
+            wrapped_query = self._wrap_sync_query(query)
+            self.print_query(wrapped_query)
             if not self.args.dry_run:
-                await self.pg.execute(query)
+                await self.pg.execute(wrapped_query)
+
+    def _wrap_sync_query(self, query: str) -> str:
+        lines = ['begin;']
+        role = self.args.session_replication_role
+        if role:
+            lines.append(f'set local session_replication_role = {quote_literal(role)};')
+        lines.extend([query, 'commit;'])
+        return '\n'.join(lines)
 
     def print_query(self, query):
         if not self.args.echo_queries:

@@ -53,25 +53,27 @@ class Pg:
         )
 
     async def fetch(self, query: str, *params) -> list[dict]:
-        query_task = asyncio.create_task(self.con.fetch(query, *params))
-        loop = asyncio.get_running_loop()
-        loop.add_signal_handler(signal.SIGINT, query_task.cancel)
-        try:
-            rows = await query_task
-            return [{key: row[key] for key in row.keys()} for row in rows]
-        except asyncio.CancelledError:
-            await asyncio.sleep(0.5)
-            return []
-        finally:
-            loop.remove_signal_handler(signal.SIGINT)
+        result = await self._run_with_signal_handler(self._fetch(query, *params))
+        return result if result is not None else []
+
+    async def _fetch(self, query: str, *params) -> list[dict]:
+        rows = await self.con.fetch(query, *params)
+        return [{key: row[key] for key in row.keys()} for row in rows]
 
     async def execute(self, query: str, *params) -> None:
-        query_task = asyncio.create_task(self.con.execute(query, *params))
+        await self._run_with_signal_handler(self._execute(query, *params))
+
+    async def _execute(self, query: str, *params) -> None:
+        await self.con.execute(query, *params)
+
+    async def _run_with_signal_handler(self, coro):
+        query_task = asyncio.create_task(coro)
         loop = asyncio.get_running_loop()
         loop.add_signal_handler(signal.SIGINT, query_task.cancel)
         try:
-            await query_task
+            return await query_task
         except asyncio.CancelledError:
             await asyncio.sleep(0.5)
+            return None
         finally:
             loop.remove_signal_handler(signal.SIGINT)

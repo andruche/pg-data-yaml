@@ -28,6 +28,7 @@ def _make_synchronizer(source: str, *, is_dir: bool) -> Synchronizer:
         echo_queries=False,
         comment_label='test label',
         table_list_predicate=None,
+        session_replication_role=None,
     )
     synchronizer = Synchronizer(args, MagicMock())
     synchronizer.is_dir = is_dir
@@ -105,6 +106,82 @@ def test_get_diff_directory_mode_reports_data_changes_for_common_tables():
     assert diff == [
         (('public', 'countries'), [{'id': 1, 'name': 'new'}], [{'id': 1, 'name': 'old'}]),
     ]
+
+
+def test_wrap_sync_query_adds_local_session_replication_role():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.session_replication_role = 'replica'
+
+    wrapped = synchronizer._wrap_sync_query(
+        "-- table: public.countries\ndelete from public.countries where id = 1;"
+    )
+
+    assert wrapped == (
+        "begin;\n"
+        "set local session_replication_role = 'replica';\n"
+        "-- table: public.countries\n"
+        "delete from public.countries where id = 1;\n"
+        "commit;"
+    )
+
+
+def test_wrap_sync_query_without_role_wraps_in_transaction():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+
+    query = 'delete from public.countries where id = 1;'
+    assert synchronizer._wrap_sync_query(query) == '\n'.join([
+        'begin;',
+        query,
+        'commit;',
+    ])
+
+
+@pytest.mark.asyncio
+async def test_apply_changes_executes_wrapped_query_in_transaction():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.dry_run = False
+    synchronizer.args.echo_queries = False
+    synchronizer.registry.get.return_value = _sync_table('public', 'countries')
+    synchronizer.pg.execute = AsyncMock()
+    synchronizer.get_apply_queries = MagicMock(
+        return_value=['delete from "public"."countries" where "id" = 1;'],
+    )
+
+    await synchronizer.apply_changes([
+        (('public', 'countries'), [], [{'id': 1}]),
+    ])
+
+    synchronizer.pg.execute.assert_awaited_once_with(
+        'begin;\n'
+        '-- table: public.countries\n'
+        'delete from "public"."countries" where "id" = 1;\n'
+        'commit;'
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_changes_executes_wrapped_query_with_session_replication_role():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.session_replication_role = 'replica'
+    synchronizer.args.dry_run = False
+    synchronizer.args.echo_queries = False
+    synchronizer.registry.get.return_value = _sync_table('public', 'countries')
+    synchronizer.pg.execute = AsyncMock()
+    synchronizer.get_apply_queries = MagicMock(
+        return_value=['delete from "public"."countries" where "id" = 1;'],
+    )
+
+    await synchronizer.apply_changes([
+        (('public', 'countries'), [], [{'id': 1}]),
+    ])
+
+    synchronizer.pg.execute.assert_awaited_once_with(
+        'begin;\n'
+        "set local session_replication_role = 'replica';\n"
+        '-- table: public.countries\n'
+        'delete from "public"."countries" where "id" = 1;\n'
+        'commit;'
+    )
 
 
 def test_get_diff_single_file_mode_ignores_tables_without_source_file():

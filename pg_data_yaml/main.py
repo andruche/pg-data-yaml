@@ -133,6 +133,12 @@ def main():
         action='store_true',
         help='do not ask confirm',
     )
+    parser_sync.add_argument(
+        '--session-replication-role',
+        metavar='ROLE',
+        help='set session_replication_role locally in transaction before DML '
+        '(for example replica to disable triggers and foreign keys)',
+    )
 
     parser_merge_envs = subparsers.add_parser(
         'merge-envs',

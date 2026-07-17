@@ -138,6 +138,7 @@ options:
 usage: pg_data_yaml sync [--help] [-d DBNAME] [-h HOST] [-p PORT] [-U USER] [-W PASSWORD]
                            (--comment-label LABEL | --table-list-predicate PREDICATE)
                            --source SOURCE [--dry-run] [--echo-queries] [-y]
+                           [--session-replication-role ROLE]
 
 options:
   --help                show this help message and exit
@@ -155,6 +156,8 @@ options:
   --dry-run             test run without real changes
   --echo-queries        echo commands sent to server
   -y, --yes             do not ask confirm
+  --session-replication-role ROLE
+                        set session_replication_role locally in transaction before DML
 ```
 
 ### merge-envs
@@ -218,4 +221,4 @@ $ pg_data_yaml sync -d my_database -h 127.0.0.1 -p 5432 -U postgres \
 $ pg_data_yaml diff -d my_database -h 127.0.0.1 -p 5432 -U postgres --source /tmp/refs/public/countries.yaml
 ```
 
-When syncing a directory, only tables that are both in the selected set and have a yaml file in `--source` are compared. A warning is printed and the table is skipped when the file exists but the table is not in the selection, or when the table is in the selection but the yaml file is missing. When syncing a single file, only that table is compared and updated if it is in the selection.
+When syncing a directory, only tables that are both in the selected set and have a yaml file in `--source` are compared. A warning is printed and the table is skipped when the file exists but the table is not in the selection, or when the table is in the selection but the yaml file is missing. When syncing a single file, only that table is compared and updated if it is in the selection. Each table is synced in its own transaction, so a failed table does not leave other tables half-updated.
