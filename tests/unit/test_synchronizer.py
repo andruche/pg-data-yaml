@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -113,13 +113,12 @@ def test_wrap_sync_query_adds_local_session_replication_role():
     synchronizer.args.session_replication_role = 'replica'
 
     wrapped = synchronizer._wrap_sync_query(
-        "-- table: public.countries\ndelete from public.countries where id = 1;"
+        'delete from public.countries where id = 1;'
     )
 
     assert wrapped == (
         "begin;\n"
         "set local session_replication_role = 'replica';\n"
-        "-- table: public.countries\n"
         "delete from public.countries where id = 1;\n"
         "commit;"
     )
@@ -153,7 +152,6 @@ async def test_apply_changes_executes_wrapped_query_in_transaction():
 
     synchronizer.pg.execute.assert_awaited_once_with(
         'begin;\n'
-        '-- table: public.countries\n'
         'delete from "public"."countries" where "id" = 1;\n'
         'commit;'
     )
@@ -178,9 +176,52 @@ async def test_apply_changes_executes_wrapped_query_with_session_replication_rol
     synchronizer.pg.execute.assert_awaited_once_with(
         'begin;\n'
         "set local session_replication_role = 'replica';\n"
-        '-- table: public.countries\n'
         'delete from "public"."countries" where "id" = 1;\n'
         'commit;'
+    )
+
+
+def test_print_query_formats_multiline_output_with_color_on_tty(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.echo_queries = True
+    synchronizer.args.dry_run = True
+
+    with patch('pg_data_yaml.synchronizer.sys.stdout.isatty', return_value=True):
+        synchronizer.print_query(
+            "begin;\n"
+            "set local session_replication_role = 'replica';\n"
+            'delete from "public"."a" where "id" = 1;\n'
+            'commit;'
+        )
+
+    assert capsys.readouterr().out == (
+        '\033[33m--QUERY (not executed):\n'
+        "begin;\n"
+        "set local session_replication_role = 'replica';\n"
+        'delete from "public"."a" where "id" = 1;\n'
+        'commit;\033[0m\n'
+        '\n'
+    )
+
+
+def test_print_query_formats_multiline_output_without_color_when_not_tty(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.echo_queries = True
+    synchronizer.args.dry_run = True
+
+    with patch('pg_data_yaml.synchronizer.sys.stdout.isatty', return_value=False):
+        synchronizer.print_query(
+            "begin;\n"
+            'delete from "public"."a" where "id" = 1;\n'
+            'commit;'
+        )
+
+    assert capsys.readouterr().out == (
+        '--QUERY (not executed):\n'
+        'begin;\n'
+        'delete from "public"."a" where "id" = 1;\n'
+        'commit;\n'
+        '\n'
     )
 
 

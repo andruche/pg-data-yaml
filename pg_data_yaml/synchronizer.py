@@ -166,10 +166,7 @@ class Synchronizer:
                 )
                 sys.exit(1)
 
-            queries = [f'-- table: {schema}.{table}']
-            queries.extend(
-                self.get_apply_queries(sync_table, src_rows or [], dst_rows or [])
-            )
+            queries = self.get_apply_queries(sync_table, src_rows or [], dst_rows or [])
             query = '\n'.join(query for query in queries if query)
             wrapped_query = self._wrap_sync_query(query)
             self.print_query(wrapped_query)
@@ -188,7 +185,10 @@ class Synchronizer:
         if not self.args.echo_queries:
             return
         executed = ' (not executed)' if self.args.dry_run else ''
-        print(f'\033[33mQUERY{executed}: {query}\033[0m\n')
+        text = f'--QUERY{executed}:\n{query}'
+        if sys.stdout.isatty():
+            text = f'\033[33m{text}\033[0m'
+        print(f'{text}\n')
 
     def get_apply_queries(self, sync_table: SyncTable, src_rows: list[dict], dst_rows: list[dict]):
         src_by_pk = {pk_key(row, sync_table.pk_columns): row for row in src_rows}
