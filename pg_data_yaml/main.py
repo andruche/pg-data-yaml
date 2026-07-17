@@ -134,6 +134,11 @@ def main():
         help='do not ask confirm',
     )
     parser_sync.add_argument(
+        '--quiet',
+        action='store_true',
+        help='do not show yaml diff before applying changes',
+    )
+    parser_sync.add_argument(
         '--session-replication-role',
         metavar='ROLE',
         help='set session_replication_role locally in transaction before DML '

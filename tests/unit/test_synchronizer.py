@@ -29,6 +29,7 @@ def _make_synchronizer(source: str, *, is_dir: bool) -> Synchronizer:
         comment_label='test label',
         table_list_predicate=None,
         session_replication_role=None,
+        quiet=False,
     )
     synchronizer = Synchronizer(args, MagicMock())
     synchronizer.is_dir = is_dir
@@ -334,6 +335,28 @@ async def test_sync_prints_only_changed_rows_in_diff():
             [{'id': 2, 'name': 'old'}],
         ),
     ])
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_diff_output_in_quiet_mode():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.yes = True
+    synchronizer.args.quiet = True
+    synchronizer.registry.load = AsyncMock()
+    synchronizer.load_tables = AsyncMock(return_value={
+        ('public', 'countries'): [{'id': 1, 'name': 'new'}],
+    })
+    synchronizer.extractor.get_tables_data = AsyncMock(return_value={
+        ('public', 'countries'): [{'id': 1, 'name': 'old'}],
+    })
+    synchronizer.registry.get = AsyncMock(return_value=_sync_table('public', 'countries'))
+    synchronizer.print_diff = MagicMock()
+    synchronizer.apply_changes = AsyncMock()
+
+    await synchronizer.sync(show_diff_only=False)
+
+    synchronizer.print_diff.assert_not_called()
+    synchronizer.apply_changes.assert_awaited_once()
 
 
 @pytest.mark.asyncio

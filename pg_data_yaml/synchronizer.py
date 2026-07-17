@@ -42,8 +42,9 @@ class Synchronizer:
         if not changes:
             print('Nothing to do: all tables are up to date')
             return
-        diff = await self.build_sync_diff(changes, src_tables, dst_tables)
-        self.print_diff(diff)
+        if not self.args.quiet:
+            diff = await self.build_sync_diff(changes, src_tables, dst_tables)
+            self.print_diff(diff)
         if self.args.yes or self.confirm(len(changes)):
             await self.apply_changes(changes)
 

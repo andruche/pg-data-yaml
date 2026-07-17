@@ -138,7 +138,7 @@ options:
 usage: pg_data_yaml sync [--help] [-d DBNAME] [-h HOST] [-p PORT] [-U USER] [-W PASSWORD]
                            (--comment-label LABEL | --table-list-predicate PREDICATE)
                            --source SOURCE [--dry-run] [--echo-queries] [-y]
-                           [--session-replication-role ROLE]
+                           [--quiet] [--session-replication-role ROLE]
 
 options:
   --help                show this help message and exit
@@ -156,6 +156,7 @@ options:
   --dry-run             test run without real changes
   --echo-queries        echo commands sent to server
   -y, --yes             do not ask confirm
+  --quiet               do not show yaml diff before applying changes
   --session-replication-role ROLE
                         set session_replication_role locally in transaction before DML
 ```
