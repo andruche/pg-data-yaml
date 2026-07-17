@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,3 +21,14 @@ async def test_execute_runs_query_with_signal_handler():
         await pg.execute("update public.countries set name = 'x';")
 
     pg.con.execute.assert_awaited_once_with("update public.countries set name = 'x';")
+
+
+@pytest.mark.asyncio
+async def test_run_with_signal_handler_propagates_cancelled_error():
+    pg = Pg(MagicMock())
+
+    async def cancelled_coro():
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await pg._run_with_signal_handler(cancelled_coro())

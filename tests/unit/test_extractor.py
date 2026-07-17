@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -51,3 +52,22 @@ async def test_get_rows_count_uses_custom_rows_limit():
 
     query = extractor.pg.fetch.await_args.args[0]
     assert 'limit 100' in query
+
+
+@pytest.mark.asyncio
+async def test_export_propagates_cancelled_error():
+    args = argparse.Namespace(
+        comment_label='test label',
+        table_list_predicate=None,
+        out_dir='/tmp/out',
+        rows_limit=DEFAULT_ROWS_LIMIT,
+    )
+    pg = MagicMock()
+    pg.fetch = AsyncMock(side_effect=asyncio.CancelledError())
+    extractor = Extractor(args, pg)
+    extractor.registry.load = AsyncMock(return_value={
+        ('public', 'countries'): _sync_table(),
+    })
+
+    with pytest.raises(asyncio.CancelledError):
+        await extractor.export()

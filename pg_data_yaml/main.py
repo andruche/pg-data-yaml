@@ -15,12 +15,17 @@ from . import __version__
 async def run(args):
     pg = Pg(args)
     await pg.init()
+    try:
+        if args.command == 'export':
+            await Extractor(args, pg).export()
 
-    if args.command == 'export':
-        await Extractor(args, pg).export()
-
-    elif args.command in ('diff', 'sync'):
-        await Synchronizer(args, pg).sync(show_diff_only=args.command == 'diff')
+        elif args.command in ('diff', 'sync'):
+            await Synchronizer(args, pg).sync(show_diff_only=args.command == 'diff')
+    except asyncio.CancelledError:
+        await asyncio.sleep(0.5)
+        sys.exit(130)
+    finally:
+        await pg.close()
 
 
 def main():
@@ -213,4 +218,7 @@ def main():
 
     if os.name == 'nt':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(run(args))
+    try:
+        asyncio.run(run(args))
+    except KeyboardInterrupt:
+        sys.exit(130)

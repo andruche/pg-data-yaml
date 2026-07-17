@@ -41,6 +41,7 @@ class Pg:
 
     def __init__(self, args):
         self.args = args
+        self.con = None
 
     async def init(self):
         self.con = await asyncpg.connect(
@@ -53,8 +54,7 @@ class Pg:
         )
 
     async def fetch(self, query: str, *params) -> list[dict]:
-        result = await self._run_with_signal_handler(self._fetch(query, *params))
-        return result if result is not None else []
+        return await self._run_with_signal_handler(self._fetch(query, *params))
 
     async def _fetch(self, query: str, *params) -> list[dict]:
         rows = await self.con.fetch(query, *params)
@@ -66,14 +66,15 @@ class Pg:
     async def _execute(self, query: str, *params) -> None:
         await self.con.execute(query, *params)
 
+    async def close(self) -> None:
+        if self.con is not None and not self.con.is_closed():
+            await self.con.close()
+
     async def _run_with_signal_handler(self, coro):
         query_task = asyncio.create_task(coro)
         loop = asyncio.get_running_loop()
         loop.add_signal_handler(signal.SIGINT, query_task.cancel)
         try:
             return await query_task
-        except asyncio.CancelledError:
-            await asyncio.sleep(0.5)
-            return None
         finally:
             loop.remove_signal_handler(signal.SIGINT)
