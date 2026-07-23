@@ -99,8 +99,14 @@ class Pg:
     async def execute(self, query: str, *params) -> None:
         await self._run_with_signal_handler(self._execute(query, *params))
 
+    async def rollback(self) -> None:
+        await self._run_with_signal_handler(self._rollback())
+
     async def _execute(self, query: str, *params) -> None:
         await self.con.execute(query, *params)
+
+    async def _rollback(self) -> None:
+        await self.con.execute('rollback')
 
     async def close(self) -> None:
         if self.con is not None and not self.con.is_closed():

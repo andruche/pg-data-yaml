@@ -1,6 +1,6 @@
 ## pg-data-yaml — Yaml interface for reference tables in PostgreSQL
 
-Export, diff and sync rows of reference tables in PostgreSQL to YAML files in a repository.
+Export, diff and sync rows of reference tables in PostgreSQL to YAML files in a repository. Utilities `merge-envs` and `analyze-envs` help compare data across environment directories.
 
 ## installation
 
@@ -132,17 +132,20 @@ options:
   --source SOURCE       directory or yaml file to compare with the database
 ```
 
+`diff` compares full yaml lists as text; row order matters.
+
 ### sync
 
 ```
 usage: pg_data_yaml sync [--help] [-d DBNAME] [-h HOST] [-p PORT] [-U USER] [-W PASSWORD]
                            (--comment-label LABEL | --table-list-predicate PREDICATE)
                            --source SOURCE [--dry-run] [--echo-queries] [-y]
-                           [--quiet] [--session-replication-role ROLE]
+                           [--quiet] [--skip-error] [--session-replication-role ROLE]
 
 options:
   --help                show this help message and exit
   -d DBNAME, --dbname DBNAME
+                        database name to connect to
   -h HOST, --host HOST  database server host or socket directory
   -p PORT, --port PORT  database server port
   -U USER, --user USER  database user name
@@ -156,10 +159,31 @@ options:
   --dry-run             test run without real changes
   --echo-queries        echo commands sent to server
   -y, --yes             do not ask confirm
-  --quiet               do not show yaml diff before applying changes
+  --quiet               suppress output; once: yaml diff, twice: table progress too
+  --skip-error          continue syncing remaining tables after a failed table
   --session-replication-role ROLE
                         set session_replication_role locally in transaction before DML
 ```
+
+Unlike `diff`, `sync` applies row-level DML (`insert`, `update`, `delete`) by primary key. Row order in yaml files does not matter: if only the order differs, sync reports `Nothing to do`. Before applying changes, sync validates that rows with the same primary key have the same set of columns in the file and in the database.
+
+During apply, progress is printed per table unless suppressed:
+
+```
+public.countries... ok
+public.cities... ok
+```
+
+On failure:
+
+```
+public.countries... ERROR: Traceback (most recent call last):
+  ...
+```
+
+Progress is not printed with `--echo-queries` (queries would split the line). Use `--quiet --quiet` to suppress progress while keeping other output. With `--skip-error`, failed tables are rolled back and remaining tables are synced; the command still exits with code 1 if any table failed.
+
+Each table is synced in its own transaction (`begin; ... commit;`), so a failed table does not leave other tables half-updated unless `--skip-error` is used to continue after an error.
 
 ### merge-envs
 
@@ -182,6 +206,37 @@ refs/
   base/public/countries.yaml   # identical in all envs
   dev/public/special.yaml      # env-specific
   prod/public/special.yaml
+```
+
+### analyze-envs
+
+Compare table yaml files across environment directories. For each table, prints a tab-separated line:
+
+```
+schema.table<TAB>identical_rows/different_rows<TAB>sync_mark
+```
+
+- `identical_rows` — rows present and identical in all directories
+- `different_rows` — distinct row variants found across directories
+- `*` after the ratio — table file is missing in at least one directory
+- `sync_mark` — `да` when the table is listed in `/tmp/synchronized_directory.txt`, otherwise empty
+
+Requires at least two directories.
+
+```
+usage: pg_data_yaml analyze-envs [--help] ENV_DIR [ENV_DIR ...]
+
+options:
+  --help                show this help message and exit
+  ENV_DIR               environment directories to compare
+```
+
+Example:
+
+```
+$ pg_data_yaml analyze-envs /tmp/refs/dev /tmp/refs/prod /tmp/refs/stage
+public.countries	120/0	да
+public.settings	45/3*	
 ```
 
 ## examples
@@ -216,10 +271,13 @@ Diff and sync use the same table selection options as export:
 
 ```
 $ pg_data_yaml merge-envs --source /tmp/refs/dev --source /tmp/refs/prod --out-dir /tmp/refs/base
+$ pg_data_yaml analyze-envs /tmp/refs/dev /tmp/refs/prod /tmp/refs/stage
 $ pg_data_yaml diff -d my_database -h 127.0.0.1 -p 5432 -U postgres --source /tmp/refs/ --comment-label "global directory"
 $ pg_data_yaml sync -d my_database -h 127.0.0.1 -p 5432 -U postgres \
-    --source /tmp/refs/ --comment-label "synchronized directory"
+    --source /tmp/refs/ --comment-label "synchronized directory" -y
+$ pg_data_yaml sync -d my_database -h 127.0.0.1 -p 5432 -U postgres \
+    --source /tmp/refs/ --comment-label "synchronized directory" --quiet --quiet --skip-error -y
 $ pg_data_yaml diff -d my_database -h 127.0.0.1 -p 5432 -U postgres --source /tmp/refs/public/countries.yaml
 ```
 
-When syncing a directory, only tables that are both in the selected set and have a yaml file in `--source` are compared. A warning is printed and the table is skipped when the file exists but the table is not in the selection, or when the table is in the selection but the yaml file is missing. When syncing a single file, only that table is compared and updated if it is in the selection. Each table is synced in its own transaction, so a failed table does not leave other tables half-updated.
+When syncing a directory, only tables that are both in the selected set and have a yaml file in `--source` are compared. A warning is printed and the table is skipped when the file exists but the table is not in the selection, or when the table is in the selection but the yaml file is missing. When syncing a single file, only that table is compared and updated if it is in the selection.

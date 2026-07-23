@@ -140,8 +140,14 @@ def main():
     )
     parser_sync.add_argument(
         '--quiet',
+        action='count',
+        default=0,
+        help='suppress output; once: yaml diff, twice: table progress too',
+    )
+    parser_sync.add_argument(
+        '--skip-error',
         action='store_true',
-        help='do not show yaml diff before applying changes',
+        help='continue syncing remaining tables after a failed table',
     )
     parser_sync.add_argument(
         '--session-replication-role',

@@ -9,6 +9,21 @@ from pg_data_yaml.pg import Pg, quote_literal
 
 
 @pytest.mark.asyncio
+async def test_rollback_executes_rollback_query():
+    pg = Pg(MagicMock())
+    pg.con = MagicMock()
+    pg.con.execute = AsyncMock()
+
+    async def passthrough(coro):
+        return await coro
+
+    with patch.object(pg, '_run_with_signal_handler', new=AsyncMock(side_effect=passthrough)):
+        await pg.rollback()
+
+    pg.con.execute.assert_awaited_once_with('rollback')
+
+
+@pytest.mark.asyncio
 async def test_execute_runs_query_with_signal_handler():
     pg = Pg(MagicMock())
     pg.con = MagicMock()

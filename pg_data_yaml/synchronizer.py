@@ -4,6 +4,7 @@ import argparse
 import glob
 import os
 import sys
+import traceback
 
 from .extractor import Extractor
 from .formatter import Formatter
@@ -42,7 +43,7 @@ class Synchronizer:
         if not changes:
             print('Nothing to do: all tables are up to date')
             return
-        if not self.args.quiet:
+        if self.args.quiet < 1:
             diff = await self.build_sync_diff(changes, src_tables, dst_tables)
             self.print_diff(diff)
         if self.args.yes or self.confirm(len(changes)):
@@ -328,12 +329,35 @@ class Synchronizer:
         return result == 'y'
 
     async def apply_changes(self, changes):
+        show_progress = not self.args.echo_queries and self.args.quiet < 2
+        had_errors = False
         for table_key, queries in changes:
+            schema, table = table_key
+            table_name = f'{schema}.{table}'
+            if show_progress:
+                print(f'{table_name}...', end='', flush=True)
             query = '\n'.join(queries)
             wrapped_query = self._wrap_sync_query(query)
             self.print_query(wrapped_query)
             if not self.args.dry_run:
-                await self.pg.execute(wrapped_query)
+                try:
+                    await self.pg.execute(wrapped_query)
+                except Exception:
+                    had_errors = True
+                    if show_progress:
+                        print(f' ERROR: {traceback.format_exc()}', end='')
+                    elif self.args.skip_error:
+                        print(f'{table_name}... ERROR: {traceback.format_exc()}', end='')
+                    else:
+                        raise
+                    if not self.args.skip_error:
+                        sys.exit(1)
+                    await self.pg.rollback()
+                    continue
+            if show_progress:
+                print(' ok')
+        if had_errors:
+            sys.exit(1)
 
     def _wrap_sync_query(self, query: str) -> str:
         lines = ['begin;']

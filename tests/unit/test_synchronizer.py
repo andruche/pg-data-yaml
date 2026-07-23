@@ -29,7 +29,8 @@ def _make_synchronizer(source: str, *, is_dir: bool) -> Synchronizer:
         comment_label='test label',
         table_list_predicate=None,
         session_replication_role=None,
-        quiet=False,
+        quiet=0,
+        skip_error=False,
     )
     synchronizer = Synchronizer(args, MagicMock())
     synchronizer.is_dir = is_dir
@@ -341,7 +342,7 @@ async def test_sync_prints_only_changed_rows_in_diff():
 async def test_sync_skips_diff_output_in_quiet_mode():
     synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
     synchronizer.args.yes = True
-    synchronizer.args.quiet = True
+    synchronizer.args.quiet = 1
     synchronizer.registry.load = AsyncMock()
     synchronizer.load_tables = AsyncMock(return_value={
         ('public', 'countries'): [{'id': 1, 'name': 'new'}],
@@ -384,6 +385,115 @@ async def test_sync_skips_diff_when_only_row_order_differs():
 
     synchronizer.print_diff.assert_not_called()
     synchronizer.apply_changes.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_apply_changes_skips_progress_when_quiet_twice(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.dry_run = False
+    synchronizer.args.echo_queries = False
+    synchronizer.args.quiet = 2
+    synchronizer.pg.execute = AsyncMock()
+
+    await synchronizer.apply_changes([
+        (('public', 'countries'), ['delete from "public"."countries" where "id" = 1;']),
+    ])
+
+    assert capsys.readouterr().out == ''
+
+
+@pytest.mark.asyncio
+async def test_apply_changes_skips_progress_when_echo_queries(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.dry_run = False
+    synchronizer.args.echo_queries = True
+    synchronizer.pg.execute = AsyncMock()
+
+    await synchronizer.apply_changes([
+        (('public', 'countries'), ['delete from "public"."countries" where "id" = 1;']),
+    ])
+
+    output = capsys.readouterr().out
+    assert 'public.countries' not in output
+    assert output.startswith('--QUERY:\n')
+
+
+@pytest.mark.asyncio
+async def test_apply_changes_prints_ok_on_success(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.dry_run = False
+    synchronizer.args.echo_queries = False
+    synchronizer.pg.execute = AsyncMock()
+
+    await synchronizer.apply_changes([
+        (('public', 'countries'), ['delete from "public"."countries" where "id" = 1;']),
+        (('public', 'cities'), ['delete from "public"."cities" where "id" = 2;']),
+    ])
+
+    assert capsys.readouterr().out == (
+        'public.countries... ok\n'
+        'public.cities... ok\n'
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_changes_prints_ok_in_dry_run(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.dry_run = True
+    synchronizer.args.echo_queries = False
+    synchronizer.pg.execute = AsyncMock()
+
+    await synchronizer.apply_changes([
+        (('public', 'countries'), ['delete from "public"."countries" where "id" = 1;']),
+    ])
+
+    synchronizer.pg.execute.assert_not_called()
+    assert capsys.readouterr().out == 'public.countries... ok\n'
+
+
+@pytest.mark.asyncio
+async def test_apply_changes_prints_error_on_failure(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.dry_run = False
+    synchronizer.args.echo_queries = False
+    synchronizer.pg.execute = AsyncMock(side_effect=RuntimeError('boom'))
+
+    with pytest.raises(SystemExit) as exc_info:
+        await synchronizer.apply_changes([
+            (('public', 'countries'), ['delete from "public"."countries" where "id" = 1;']),
+        ])
+
+    assert exc_info.value.code == 1
+    output = capsys.readouterr().out
+    assert output.startswith('public.countries... ERROR: Traceback (most recent call last):')
+    assert 'RuntimeError: boom' in output
+
+
+@pytest.mark.asyncio
+async def test_apply_changes_continues_on_error_with_skip_error(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.dry_run = False
+    synchronizer.args.echo_queries = False
+    synchronizer.args.skip_error = True
+    synchronizer.pg.execute = AsyncMock(side_effect=[
+        RuntimeError('boom'),
+        None,
+    ])
+    synchronizer.pg.rollback = AsyncMock()
+
+    with pytest.raises(SystemExit) as exc_info:
+        await synchronizer.apply_changes([
+            (('public', 'countries'), ['delete from "public"."countries" where "id" = 1;']),
+            (('public', 'cities'), ['delete from "public"."cities" where "id" = 2;']),
+        ])
+
+    assert exc_info.value.code == 1
+    assert synchronizer.pg.execute.await_count == 2
+    synchronizer.pg.rollback.assert_awaited_once()
+    output = capsys.readouterr().out
+    assert output.startswith('public.countries... ERROR: Traceback (most recent call last):')
+    assert 'RuntimeError: boom' in output
+    assert output.endswith('public.cities... ok\n')
 
 
 @pytest.mark.asyncio
