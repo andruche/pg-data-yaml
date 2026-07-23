@@ -339,6 +339,29 @@ async def test_sync_prints_only_changed_rows_in_diff():
     ])
 
 
+def test_confirm_prints_prompt_with_yes_flag(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.yes = True
+
+    assert synchronizer.confirm(3) is True
+
+    assert capsys.readouterr().out == (
+        'Are you sure you want to change 3 tables? (y/n): y\n'
+    )
+
+
+def test_confirm_waits_for_input_without_yes_flag():
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.yes = False
+
+    with patch('builtins.input', return_value='y') as input_mock:
+        assert synchronizer.confirm(2) is True
+
+    input_mock.assert_called_once_with(
+        'Are you sure you want to change 2 tables? (y/n): '
+    )
+
+
 @pytest.mark.asyncio
 async def test_sync_skips_diff_output_in_quiet_mode():
     synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)

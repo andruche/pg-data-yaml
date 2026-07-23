@@ -54,7 +54,7 @@ class Synchronizer:
         if self.args.quiet < 1:
             diff = await self.build_sync_diff(changes, src_tables, dst_tables)
             self.print_diff(diff)
-        if self.args.yes or self.confirm(len(changes)):
+        if self.confirm(len(changes)):
             await self.apply_changes(changes)
 
     async def load_tables(self) -> dict[tuple[str, str], list[dict]]:
@@ -329,12 +329,14 @@ class Synchronizer:
                 )
             )
 
-    @staticmethod
-    def confirm(changed_tables_count):
-        result = input(
+    def confirm(self, changed_tables_count):
+        prompt = (
             f'Are you sure you want to change {changed_tables_count} tables? (y/n): '
         )
-        return result == 'y'
+        if self.args.yes:
+            print(f'{prompt}y')
+            return True
+        return input(prompt) == 'y'
 
     async def apply_changes(self, changes):
         show_progress = not self.args.echo_queries and self.args.quiet < 2
