@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 
 from pg_data_yaml.registry import SyncTable
@@ -467,6 +468,29 @@ async def test_apply_changes_prints_error_on_failure(capsys):
     output = capsys.readouterr().out
     assert output.startswith('public.countries... ERROR: Traceback (most recent call last):')
     assert 'RuntimeError: boom' in output
+
+
+@pytest.mark.asyncio
+async def test_apply_changes_prints_postgres_error_without_traceback(capsys):
+    synchronizer = _make_synchronizer('/tmp/refs', is_dir=True)
+    synchronizer.args.dry_run = False
+    synchronizer.args.echo_queries = False
+    synchronizer.pg.execute = AsyncMock(side_effect=asyncpg.PostgresError(
+        'current transaction is aborted, commands ignored until end of transaction block'
+    ))
+
+    with pytest.raises(SystemExit) as exc_info:
+        await synchronizer.apply_changes([
+            (('public', 'countries'), ['delete from "public"."countries" where "id" = 1;']),
+        ])
+
+    assert exc_info.value.code == 1
+    output = capsys.readouterr().out
+    assert output == (
+        'public.countries... ERROR: current transaction is aborted, '
+        'commands ignored until end of transaction block\n'
+    )
+    assert 'Traceback' not in output
 
 
 @pytest.mark.asyncio

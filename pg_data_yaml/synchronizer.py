@@ -6,12 +6,20 @@ import os
 import sys
 import traceback
 
+import asyncpg
+
 from .extractor import Extractor
 from .formatter import Formatter
 from .pg import Pg, quote_ident, quote_literal
 from .registry import SyncTable, TableRegistry
 from .str_diff import color_str_diff
 from .values import ordered_row, pk_key, rows_equal
+
+
+def _format_apply_error(exc: BaseException) -> str:
+    if isinstance(exc, asyncpg.PostgresError):
+        return str(exc)
+    return traceback.format_exc()
 
 
 class Synchronizer:
@@ -342,12 +350,13 @@ class Synchronizer:
             if not self.args.dry_run:
                 try:
                     await self.pg.execute(wrapped_query)
-                except Exception:
+                except Exception as exc:
                     had_errors = True
+                    error_text = _format_apply_error(exc)
                     if show_progress:
-                        print(f' ERROR: {traceback.format_exc()}', end='')
+                        print(f' ERROR: {error_text.rstrip()}')
                     elif self.args.skip_error:
-                        print(f'{table_name}... ERROR: {traceback.format_exc()}', end='')
+                        print(f'{table_name}... ERROR: {error_text.rstrip()}')
                     else:
                         raise
                     if not self.args.skip_error:
