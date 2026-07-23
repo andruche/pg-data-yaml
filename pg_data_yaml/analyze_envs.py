@@ -12,7 +12,7 @@ from .paths import list_table_yaml_files
 class AnalyzeEnvs:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.sources = [os.path.abspath(path) for path in args.source]
+        self.sources = [os.path.abspath(path) for path in args.sources]
 
     def run(self) -> None:
         self._validate()
@@ -57,7 +57,7 @@ class AnalyzeEnvs:
 
     def _validate(self) -> None:
         if len(self.sources) < 2:
-            print('ERROR: specify at least two --source directories', file=sys.stderr)
+            print('ERROR: specify at least two environment directories', file=sys.stderr)
             sys.exit(1)
 
         seen = set()

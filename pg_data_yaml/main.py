@@ -173,17 +173,16 @@ def main():
         help='show actions without changing files',
     )
 
-    parser_merge_envs = subparsers.add_parser(
+    parser_analyze_envs = subparsers.add_parser(
         'analyze-envs',
         help='compare data between envs',
         conflict_handler='resolve',
     )
-    parser_merge_envs.add_argument(
-        '--source',
-        action='append',
-        required=True,
+    parser_analyze_envs.add_argument(
+        'sources',
+        nargs='+',
         metavar='ENV_DIR',
-        help='environment directory (can be repeated)',
+        help='environment directories to compare',
     )
 
     args = arg_parser.parse_args()
@@ -213,7 +212,7 @@ def main():
         return
 
     if args.command == 'analyze-envs':
-        AnalyzeEnvs(args).run_base()
+        AnalyzeEnvs(args).run()
         return
 
     if os.name == 'nt':
