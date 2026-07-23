@@ -14,6 +14,40 @@ def quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _quote_array_element(value):
+    if value is None:
+        return 'NULL'
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, list):
+        return _format_array_literal(value)
+    if isinstance(value, dict):
+        return _quote_array_string_element(json.dumps(value, separators=(',', ':')))
+    if isinstance(value, uuid.UUID):
+        return _quote_array_string_element(str(value))
+    if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
+        return _quote_array_string_element(value.isoformat())
+    if isinstance(value, str):
+        return _quote_array_string_element(value)
+    if isinstance(value, (bytes, memoryview)):
+        return _quote_array_string_element(bytes(value).hex())
+    raise TypeError(f'Unknown type for array element: {value!r}')
+
+
+def _quote_array_string_element(value: str) -> str:
+    escaped = value.replace('\\', '\\\\').replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _format_array_literal(value: list) -> str:
+    elements = ', '.join(_quote_array_element(item) for item in value)
+    return '{' + elements + '}'
+
+
 def quote_literal(value):
     if value is None:
         return 'null'
@@ -29,7 +63,9 @@ def quote_literal(value):
         return quote_literal(value.isoformat())
     if isinstance(value, str):
         return "'" + value.replace("'", "''") + "'"
-    if isinstance(value, (dict, list)):
+    if isinstance(value, list):
+        return quote_literal(_format_array_literal(value))
+    if isinstance(value, dict):
         return quote_literal(json.dumps(value))
     if isinstance(value, (bytes, memoryview)):
         return quote_literal(bytes(value).hex())

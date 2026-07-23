@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pg_data_yaml.pg import Pg
+from pg_data_yaml.pg import Pg, quote_literal
 
 
 @pytest.mark.asyncio
@@ -32,3 +32,23 @@ async def test_run_with_signal_handler_propagates_cancelled_error():
 
     with pytest.raises(asyncio.CancelledError):
         await pg._run_with_signal_handler(cancelled_coro())
+
+
+def test_quote_literal_text_array():
+    assert quote_literal(['one', 'two', 'tre']) == '\'{"one", "two", "tre"}\''
+
+
+def test_quote_literal_int_array():
+    assert quote_literal([1, 2, 3]) == "'{1, 2, 3}'"
+
+
+def test_quote_literal_null_in_array():
+    assert quote_literal(['a', None]) == '\'{"a", NULL}\''
+
+
+def test_quote_literal_nested_array():
+    assert quote_literal([[1, 2], [3]]) == "'{{1, 2}, {3}}'"
+
+
+def test_quote_literal_dict_still_json():
+    assert quote_literal({'a': 1}) == '\'{"a": 1}\''
